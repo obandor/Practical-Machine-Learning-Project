@@ -1,0 +1,121 @@
+---
+title: "Practical Machine Learning Project Report - HAR"
+author: "Roberto Obando"
+output: 
+  html_document:
+    theme : cerulean
+---
+
+##  Introduction
+
+This report explains the analysis, design and implementation of the Practical Machine Learning (PML) project.
+The problem to solve in this project is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants of the Groupware@LES Human Activity Recognition Project (HAR). The participants  perform barbell lifts correctly and incorrectly in 5 different ways. Using devices like  Jawbone Up, Nike FuelBand, and Fitbit they collected large amounts of data for this exercises. The objective of this project is to predict the manner in which they did the exercise.
+
+
+## Process
+The process involves analyzing the data, determine the us of a predictive model and test the model with the training data and the test data. Once satisfied with the model performance under test data, then predict the results.
+The hardware used in this project is an Intel box with a CoreI7 processor with 4 cores running Windows 8.1. The software is RStudio with R version 3.1.3 patched, the caret and doParallel libraries.
+
+### Collecting Data
+The training and test data can be found here:
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv> and <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv> respectively.
+Usually the data folder and the source code don't share the same location, but for simplicity and having the not so large amount of data, the data was downloaded to the R Working Directory.
+
+The training and test data is loaded as follows:
+
+```{r}
+library("caret")
+library("randomForest")
+library("doParallel")
+
+## load training and test data
+training <- read.csv("pml-training.csv", na.strings= c("NA",""," ","#DIV/0!"))
+test <- read.csv("pml-testing.csv", na.strings= c("NA",""," ","#DIV/0!"))
+```
+
+The training data dimension is : 19622 observations of 160 variables  
+the test data dimension is: 20 observations of 160 variables  
+
+### Pre processing the training data
+The raw training data analysis shows that it has 7 identification columns and a large amount of columns with NAs and #Div0!. The code to omit the NAs and remove the identity columns is:
+
+```{r}
+## Removing NAs and #DIV/0!
+training_no_na<-training[,colSums(is.na(training))==0]
+
+## Remove the first 7 columns since they are identifiers.
+idColToRemove <- c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window")
+training_no_na_idcol_rem <- training_no_na[, -which(names(training_no_na) %in% idColToRemove)]
+```
+
+The dimension of the training without NAs is: 19622    60  
+The dimension of the training after removing the id columns is: 19622    53 
+
+The next step is to partition the training data in two subsets of train and test with a 60/40 ratio for **cross validation**
+
+```{r}
+## split training in train_nc, and test_nc 
+set.seed(12345)
+train_nc_part <- createDataPartition(y = training_no_na_idcol_rem$classe, p = 0.6, list = FALSE)
+train_nc <- training_no_na_idcol_rem[train_nc_part, ]
+test_nc <- training_no_na_idcol_rem[-train_nc_part, ]
+```
+dimensions:  
+train_nc :11776   53  
+test_nc  : 7846  53  
+
+### Modeling
+
+The Random Forest model used for this project. To improve performance, parallel processing is used with 3 out of the 4 cores available in this box.  
+
+```{r}
+## Random Forest Model
+## Set up parallel processing
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+rfModelTrain <- randomForest(classe ~ ., data = train_nc, importance = TRUE, ntrees = 10)
+## turn off parallel processing
+stopCluster(cluster)
+rfModelTrain
+registerDoSEQ()
+```
+
+### Cross Validation
+The created model is used to cross validate using the partitioned data: train_nc and test_nc  
+
+```{r}
+## test the model against train_nc
+train_nc_test <- predict(rfModelTrain, train_nc)
+confusionMatrix(train_nc$classe, train_nc_test) # Accuracy : 1
+
+## Cross Validation : test the model against the test_nc 
+crossVal <- predict(rfModelTrain, test_nc)
+confusionMatrix(test_nc$classe, crossVal) # Accuracy : 0.9939%
+```
+As expected when using with the train_nc data, the accuracy is 100%. When applied to the test_nc data then the model renders an Accuracy of 99.39 % which is very good (0.61% of error!).
+
+### Prediction using the test data
+In this section we use the created model to get the predictions for the 20 observations in the test data set. To do this the data set is manipulated in the same way the testing data was: remove NAs, #DIV/0! and remove identification columns.  
+Then the predict function applied to the cleaned test data and using the model renders the predictions.
+
+
+
+```{r}
+## Pre Processing test data
+## Removing NAs and #DIV/0!
+test_no_na<-test[,colSums(is.na(test))==0]
+
+## Remove the following columns since they are identifiers.
+idColToRemove <- c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window")
+test_no_na_idcol_rem <- test_no_na[, -which(names(test_no_na) %in% idColToRemove)]
+
+
+## Predictions
+prediction <- predict(rfModelTrain, test_no_na_idcol_rem)
+```
+
+### Conclusion
+
+
+With the use of personal gadgets to measure human activitiy features, it is easier to collect large amounts of data, analyze them and perform predictions. Random Forest is a method that in this project performs extremely well. The accuracy for the Out of sample is 99.39% which indicates that this method can be used to predict accurately the manner a person performs an exercise.  
+The predictions were submitted using the files generated by the script in the submissions page. All the answers are correct!.
